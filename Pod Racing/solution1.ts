@@ -71,16 +71,20 @@ class Pod {
         return Utils.shouldUseBoost(angle, distance, this)
     }
 
-    followPath() {
+    followPathCRM(nextCheckpoint: Position, nextCheckpointAngle: number, ) {
         const lookaheadPosition = this.checkpointsManager.getLookaheadPoint(this.position, Config.LOOKAHEAD_DISTANCE)
         
-        const angleToLookahead = Utils.calculateAngle(this.position, lookaheadPosition)
+        const angleToLookahead = Utils.calculateRelativeAngle(this, lookaheadPosition)
         const distanceToLookahead = Utils.calculateDistance(this.position, lookaheadPosition)
 
-        let trust: number = Utils.getTrust(angleToLookahead, distanceToLookahead, this.speed)
+        const distanceToNextCheckpoint = Utils.calculateDistance(this.position, nextCheckpoint)
+        
+        // Calculate trust based on next checkpoint distance, not the lookahead point
+        let trust: number = Utils.getTrust(nextCheckpointAngle, distanceToNextCheckpoint, this.speed)
         this.updateTrust(trust)
 
         this.trust = Math.round(Utils.smoothTrust(this.trust, this.lastTrust, Config.TRUST_SMOOTHING_FACTOR))
+
 
         DebugManager.DebugMessage(`Follow Path Position: (${lookaheadPosition.toString()})`)
         DebugManager.DebugMessage(`Follow Path Trust: (${trust})`)
@@ -88,6 +92,57 @@ class Pod {
         DebugManager.DebugMessage(`Follow Path Distance: (${distanceToLookahead})`)
 
         return new Target(lookaheadPosition.x,  lookaheadPosition.y, this.trust, angleToLookahead, distanceToLookahead)
+    }
+
+    followPathDynamic(nextCheckpoint: Position) {
+        // Step 1: Dynamically calculate the lookahead point based on pod's speed and distance to checkpoint
+        const lookaheadPoint = this.calculateDynamicLookahead(nextCheckpoint);
+        
+        // Step 2: Calculate the relative angle between the pod's movement direction and the lookahead point
+        const angleToLookahead = Utils.calculateRelativeAngle(this, lookaheadPoint);
+        
+        // Step 3: Calculate the distance to the lookahead point
+        const distanceToLookahead = Utils.calculateDistance(this.position, lookaheadPoint);
+
+        // Step 4: Adjust trust based on the angle and distance to the lookahead point
+        let trust = Utils.getTrust(angleToLookahead, distanceToLookahead, this.speed);
+        
+        // Step 5: Smooth the trust value
+        this.trust = Math.round(Utils.smoothTrust(trust, this.lastTrust, Config.TRUST_SMOOTHING_FACTOR));
+
+        // Debugging output
+        DebugManager.DebugMessage(`Lookahead Position: (${lookaheadPoint.toString()})`);
+        DebugManager.DebugMessage(`Lookahead Trust: (${trust})`);
+        DebugManager.DebugMessage(`Lookahead Angle: (${angleToLookahead})`);
+        DebugManager.DebugMessage(`Lookahead Distance: (${distanceToLookahead})`);
+
+        return new Target(lookaheadPoint.x, lookaheadPoint.y, this.trust, angleToLookahead, distanceToLookahead);
+    }
+
+    // Calculate dynamic lookahead point based on pod's speed and next checkpoint position
+    calculateDynamicLookahead(nextCheckpoint: Position): Position {
+        const lookaheadDistance = Math.min(this.speed * Config.LOOKAHEAD_SCALING_FACTOR, Config.MAX_LOOKAHEAD_DISTANCE);
+        
+        const directionVector = {
+            x: nextCheckpoint.x - this.position.x,
+            y: nextCheckpoint.y - this.position.y,
+        };
+
+        const magnitude = Math.sqrt(directionVector.x ** 2 + directionVector.y ** 2);
+
+        // Normalize the direction vector
+        const normalizedVector = {
+            x: directionVector.x / magnitude,
+            y: directionVector.y / magnitude,
+        };
+
+        // Calculate the lookahead point
+        const lookaheadPoint = new Position(
+            this.position.x + normalizedVector.x * lookaheadDistance,
+            this.position.y + normalizedVector.y * lookaheadDistance
+        );
+
+        return lookaheadPoint;
     }
 
     debugState() {
@@ -106,14 +161,14 @@ class DebugManager {
     }
 }
 
-class CatmullRomCalculator {
-    private cache = new Map<string, Position>();
+class PathGeneratorHelper {
+    private cacheCMR = new Map<string, Position>();
 
     catmullRom(p0: Position, p1: Position, p2: Position, p3: Position, t: number): Position {
         const cacheKey = `${p0.x},${p0.y},${p1.x},${p1.y},${p2.x},${p2.y},${p3.x},${p3.y},${t}`;
         
-        if (this.cache.has(cacheKey)) {
-            return this.cache.get(cacheKey)!;
+        if (this.cacheCMR.has(cacheKey)) {
+            return this.cacheCMR.get(cacheKey)!;
         }
 
         const t2 = t * t;
@@ -135,7 +190,7 @@ class CatmullRomCalculator {
 
         const result = new Position(x, y);
 
-        this.cache.set(cacheKey, result);
+        this.cacheCMR.set(cacheKey, result);
 
         DebugManager.DebugMessage(`Catmull-Rom Calculation Positions:`);
         DebugManager.DebugMessage(`p0: (${p0.toString()})`);
@@ -157,7 +212,7 @@ class CheckpointsManager {
     currentCheckpoint: Position | null = null
     currentCheckpointIndex: number | null = null
 
-    constructor(public catmullCalculator: CatmullRomCalculator) {}
+    constructor(public catmullCalculator: PathGeneratorHelper) {}
 
     addCheckpoint(position: Position) {
         this.checkpoints.push(position)
@@ -177,7 +232,7 @@ class CheckpointsManager {
             let p2 = this.checkpoints[i + 1]
             let p3 = this.checkpoints[i + 2]
 
-            for(let t = 0; t < 1; t += 0.1) {
+            for(let t = 0; t < 1; t += (1 / Config.CATMULL_ROM_DIVISOR_FACTOR)) {
                 const smoothedPosition = this.catmullCalculator.catmullRom(p0, p1, p2, p3, t)
                 this.smoothedPath.push(smoothedPosition)
             }
@@ -185,20 +240,28 @@ class CheckpointsManager {
     }
 
     getLookaheadPoint(currentPosition: Position, lookaheadDistance: number): Position {
-        let closestIndex = 0
-        let minDistance = Infinity
-
-        for(const i in this.smoothedPath) {
-            const distance = Utils.calculateDistance(currentPosition, this.smoothedPath[i])
+        let closestIndex = 0;
+        let minDistance = Infinity;
+    
+        // Find the closest point on the smoothed path, but ensure it's after the current checkpoint
+        for (let i = this.currentCheckpointIndex ?? 0; i < this.smoothedPath.length; i++) {
+            const distance = Utils.calculateDistance(currentPosition, this.smoothedPath[i]);
             if (distance < minDistance) {
-                minDistance = distance
-                closestIndex = parseInt(i)
+                minDistance = distance;
+                closestIndex = i;
             }
         }
-
-        // point of lookahead
-        const lookaheadPosition = Math.min(closestIndex + lookaheadDistance, this.smoothedPath.length - 1)
-        return this.smoothedPath[lookaheadPosition]
+    
+        // Adjust lookahead to always be ahead of the current checkpoint
+        const lookaheadPosition = Math.min(closestIndex + lookaheadDistance, this.smoothedPath.length - 1);
+    
+        // Ensure we don't move back to points before the current checkpoint
+        const checkpointBound = this.checkpoints.findIndex(c => c.x === this.checkpoints[this.currentCheckpointIndex!].x && c.y === this.checkpoints[this.currentCheckpointIndex!].y);
+        if (lookaheadPosition < checkpointBound) {
+            return this.smoothedPath[checkpointBound];
+        }
+    
+        return this.smoothedPath[lookaheadPosition];
     }
 
     detectLap(nextCheckpoint: Position) {
@@ -243,6 +306,7 @@ class CheckpointsManager {
     debugState() {
         DebugManager.DebugMessage(`Lap: (${this.currentLap})`)
         DebugManager.DebugMessage(`Checkpoints: (${Object.entries(this.checkpoints).toString()})`)
+        DebugManager.DebugMessage(`Smoothed Path: (${Object.entries(this.smoothedPath).toString()})`)
         DebugManager.DebugMessage(`Last Checkpoint: (${this.lastCheckpoint?.toString()})`)
         DebugManager.DebugMessage(`Current Checkpoint Index: (${this.currentCheckpointIndex})`)
     }
@@ -253,17 +317,23 @@ class Utils {
         return Math.max(min, Math.min(number, max))
     }
 
-    static adjustTrustBasedOnAngle(trust: number, angle: number): number {
+    static adjustTrustBasedOnAngle(trust: number, angle: number, distance: number): number {
         const angleAbs = Math.abs(angle);
-        const angleFactor = Utils.clamp((90 - angleAbs) / 90, 0, 1);
-        trust = trust * angleFactor
+        
+        // Adjust the scaling factor based on how far the pod is from the checkpoint
+        const distanceFactor = distance > Config.ANGLE_BASED_DISTANCE ? 1 : distance / Config.ANGLE_BASED_DISTANCE;
+        
+        // Allow more thrust even at high angles if the pod is far away
+        const angleFactor = Utils.clamp((90 - angleAbs) / 90, 0.2, 1); // Don't let it go too low
+        trust = trust * angleFactor * distanceFactor;
+    
         return trust;
     }
 
     static getTrust(angle: number, distance: number, speed: number): number {
         const proposedTrust = (distance / speed) * Config.DISTANCE_SPEED_MULTIPLIER
         let trust = Utils.clamp(proposedTrust, Config.MIN_TRUST, Config.MAX_TRUST)
-        return Utils.adjustTrustBasedOnAngle(trust, angle)
+        return Utils.adjustTrustBasedOnAngle(trust, angle, distance)
     }
     
     static shouldUseAdaptiveBoost(
@@ -314,15 +384,34 @@ class Utils {
         return false
     }
 
-    static calculateAngle(
-        p1: Position,
-        p2: Position
-    ): number {
-        const deltaX = p2.x - p1.x
-        const deltaY = p2.y - p1.y
-        const radians = Math.atan2(deltaY, deltaX)
-        const degrees = radians * (180 / Math.PI)
-        return degrees
+    static calculateAngleBetweenPoints(p1: Position, p2: Position): number {
+        const deltaX = p2.x - p1.x;
+        const deltaY = p2.y - p1.y;
+
+        // Calculate the angle in radians and convert it to degrees
+        const angleInRadians = Math.atan2(deltaY, deltaX);
+        return angleInRadians * (180 / Math.PI);  // Convert to degrees
+    }
+
+    // Calculate the relative angle between the pod's movement direction and the lookahead target
+    static calculateRelativeAngle(pod: Pod, lookaheadPosition: Position): number {
+        // Step 1: Calculate pod's orientation based on its movement vector (lastPosition to currentPosition)
+        const podOrientation = Utils.calculateAngleBetweenPoints(pod.lastPosition, pod.position);
+
+        // Step 2: Calculate the angle to the lookahead position
+        const angleToLookahead = Utils.calculateAngleBetweenPoints(pod.position, lookaheadPosition);
+
+        // Step 3: Calculate the relative angle (difference between the pod's orientation and the angle to the lookahead)
+        let relativeAngle = angleToLookahead - podOrientation;
+
+        // Normalize the angle to be within [-180, 180]
+        if (relativeAngle > 180) {
+            relativeAngle -= 360;
+        } else if (relativeAngle < -180) {
+            relativeAngle += 360;
+        }
+
+        return relativeAngle;
     }
 
     static calculateDistance(
@@ -343,32 +432,37 @@ class Config {
     static DEBUG = true
     
     // path calc config
-    static USE_CATMULL_ROM_SPLINE = true
+    static USE_CATMULL_ROM_SPLINE = false
     static LOOKAHEAD_DISTANCE = 10
+    static CATMULL_ROM_DIVISOR_FACTOR = 10 // a higher number means more calculations, may return timeout
+    static USE_DYNAMIC_LOOKAHEAD = true
+    static LOOKAHEAD_SCALING_FACTOR = 6;  // Scale the lookahead distance based on speed
+    static MAX_LOOKAHEAD_DISTANCE = 6000;   // Maximum distance to look ahead
 
     // trust config
     static DISTANCE_SPEED_MULTIPLIER = 35
-    static MIN_TRUST = 30
+    static MIN_TRUST = 35
     static MAX_TRUST = 100
-    static TRUST_SMOOTHING_FACTOR = 0.8
+    static TRUST_SMOOTHING_FACTOR = 1
     static STOP_IGNITING_SPEED = 300
+    static ANGLE_BASED_DISTANCE = 5000
 
     // opponent trust config
-    static NEAR_HIT_OPPONENT_TRUST_REDUCE = 0.5
-    static NEAR_HIT_OPPONENT_DISTANCE = 800
+    static NEAR_HIT_OPPONENT_TRUST_REDUCE = 1
+    static NEAR_HIT_OPPONENT_DISTANCE = 1000
 
     // boost config
     static MIN_SPEED_USE_BOOST = 0
     static MIN_DISTANCE_USE_BOOST = 7000
     static FINISH_STRONG = false
     static START_STRONG = true
-    static USE_ADAPTATIVE_BOOST = false
+    static USE_ADAPTATIVE_BOOST = true
     static LAP_TO_USE_BOOST = 3
     static LAST_LAP = 3
 }
 
 function main() {
-    const catmullCalculator = new CatmullRomCalculator()
+    const catmullCalculator = new PathGeneratorHelper()
     const checkpointsManager = new CheckpointsManager(catmullCalculator)
     const pod = new Pod(checkpointsManager)
 
@@ -391,17 +485,18 @@ function main() {
         const opponentPosition = new Position(opponentX, opponentY)
         pod.updatePosition(podPosition)
 
-        let trust: number | string = 100
-        if (checkpointsManager.currentLap == 1 || checkpointsManager.checkpoints.length < 4 || !Config.USE_CATMULL_ROM_SPLINE) {
-            if (Config.DEBUG) DebugManager.DebugMessage(`Lap ${checkpointsManager.currentLap} and ${checkpointsManager.checkpoints.length} is not enough`)
-            trust = Utils.getTrust(nextCheckpointAngle, nextCheckpointDist, pod.speed)
-        } else {
-            const pathData = pod.followPath()
-            trust = pathData.trust
+        let trust: number | string = Utils.getTrust(nextCheckpointAngle, nextCheckpointDist, pod.speed)
+        if (Config.USE_CATMULL_ROM_SPLINE && checkpointsManager.currentLap > 1 && checkpointsManager.checkpoints.length >= 4) {
+            const pathData = pod.followPathCRM(nextCheckpoint, nextCheckpointAngle)
             nextCheckpointX = pathData.x
             nextCheckpointY = pathData.y
-            // nextCheckpointAngle = pathData.angle
-            // nextCheckpointDist = pathData.distance
+        } else if (Config.USE_DYNAMIC_LOOKAHEAD) {
+            const pathData = pod.followPathDynamic(nextCheckpoint)
+            nextCheckpointX = pathData.x
+            nextCheckpointY = pathData.y
+        } else {
+            DebugManager.DebugMessage(`Lap ${checkpointsManager.currentLap} and ${checkpointsManager.checkpoints.length} is not enough`)
+            trust = Utils.getTrust(nextCheckpointAngle, nextCheckpointDist, pod.speed)
         }
         
         pod.updateTrust(trust)
@@ -426,10 +521,6 @@ function main() {
             nextCheckpointY += (nextCheckpointY - y) * 0.1
         }
 
-        if (typeof trust === 'number') {
-            trust = Math.round(Utils.smoothTrust(trust, pod.lastTrust, Config.TRUST_SMOOTHING_FACTOR))
-        }
-
         if (
             (
                 pod.igniting
@@ -441,6 +532,10 @@ function main() {
             )
         ) {
             trust = 100
+        }
+
+        if (typeof trust === "number") {
+            trust = Math.round(trust)
         }
 
         nextCheckpointX = Math.round(nextCheckpointX)
