@@ -95,7 +95,7 @@ class Drone implements CollectionObj {
         if (creaturesVectors?.length) {
             const validVectors = creaturesVectors.filter((v): v is Vector => v !== undefined)
             const nearestVector = VectorHelper.getNearestVector(validVectors, this.position)
-            if (nearestVector.x !== this.position.x && nearestVector.y > this.position.y) {
+            if (nearestVector.x !== this.position.x && nearestVector.y > (this.position.y - Config.HIGH_LIGHT_ACTIVATE_DISTANCE)) {
                 move = `MOVE ${nearestVector.x} ${nearestVector.y}`
             }
         }
