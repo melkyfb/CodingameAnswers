@@ -67,16 +67,15 @@ class Drone implements CollectionObj {
     emergency: number
     battery: number
 
-    getNextMove(creatures: Creature[], droneScans: DroneScan[]) {
-        let move = "WAIT"
-        let highLight = this.shouldUseHighlight(droneScans, creatures)
+    getNextMove(creatures: Creature[], creaturesScanned: Creature[]) {
+        let move = this.getMoveAction(creatures, creaturesScanned)
+        let highLight = this.shouldUseHighlight(creatures, creaturesScanned)
         const finalMove = `${move} ${highLight}`
         console.log(finalMove,finalMove) // twice to show above the Drone
     }
 
-    private shouldUseHighlight(droneScans: DroneScan[], creatures: Creature[]) {
+    shouldUseHighlight(creatures: Creature[], creaturesScanned: Creature[]): number {
         let highLight = 0
-        const creaturesScanned = droneScans.map(ds => ds.creature)
         const creaturesNotScanned = CreaturesHelper.subtractCreatures(creatures, creaturesScanned)
         const creaturesVectors = creaturesNotScanned.map(c => c.position)
         if (creaturesVectors?.length) {
@@ -87,6 +86,20 @@ class Drone implements CollectionObj {
             }
         }
         return highLight
+    }
+
+    getMoveAction(creatures: Creature[], creaturesScanned: Creature[]): string {
+        let move = "WAIT"
+        const creaturesNotScanned = CreaturesHelper.subtractCreatures(creatures, creaturesScanned)
+        const creaturesVectors = creaturesNotScanned.map(c => c.position)
+        if (creaturesVectors?.length) {
+            const validVectors = creaturesVectors.filter((v): v is Vector => v !== undefined)
+            const nearestVector = VectorHelper.getNearestVector(validVectors, this.position)
+            if (nearestVector.x !== this.position.x && nearestVector.y > this.position.y) {
+                move = `${nearestVector.x} ${nearestVector.y}`
+            }
+        }
+        return move
     }
 }
 
