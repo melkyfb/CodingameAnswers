@@ -287,7 +287,7 @@ class Game {
     }
 
     getAction(drone: Drone) {    
-            drone.getNextMove(this.visibleCreatures, this.playerDroneScans)
+            drone.getNextMove(this.visibleCreatures, this.playerCreatures)
     }
 
     debugVariables() {
