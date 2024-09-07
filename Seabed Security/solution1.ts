@@ -69,6 +69,12 @@ class Drone implements CollectionObj {
 
     getNextMove(creatures: Creature[], droneScans: DroneScan[]) {
         let move = "WAIT"
+        let highLight = this.shouldUseHighlight(droneScans, creatures)
+        const finalMove = `${move} ${highLight}`
+        console.log(finalMove,finalMove) // twice to show above the Drone
+    }
+
+    private shouldUseHighlight(droneScans: DroneScan[], creatures: Creature[]) {
         let highLight = 0
         const creaturesScanned = droneScans.map(ds => ds.creature)
         const creaturesNotScanned = CreaturesHelper.subtractCreatures(creatures, creaturesScanned)
@@ -80,12 +86,7 @@ class Drone implements CollectionObj {
                 highLight = 1
             }
         }
-        const finalMove = `${move} ${highLight}`
-        console.log(finalMove,finalMove) // twice to show above the Drone
-
-        DebugManager.message(`creaturesScanned ${creaturesScanned.map(c => c.toString())}`)
-        DebugManager.message(`creaturesNotScanned ${creaturesNotScanned.map(c => c.toString())}`)
-        DebugManager.message(`creaturesVectors ${creaturesVectors.map(c => c?.toString())}`)
+        return highLight
     }
 }
 
@@ -162,6 +163,7 @@ class Game {
 
         while (true) {
             this.processInputs()
+            this.debugVariables()
             
             for (const drone of this.playerDrones) {
                 this.getAction(drone)
@@ -274,6 +276,20 @@ class Game {
     getAction(drone: Drone) {    
             drone.getNextMove(this.visibleCreatures, this.playerDroneScans)
     }
+
+    debugVariables() {
+        DebugManager.message(`creatures: ${JSON.stringify(this.creatures)}`);
+        DebugManager.message(`playerScore: ${this.playerScore}`);
+        DebugManager.message(`AIScore: ${this.AIScore}`);
+        DebugManager.message(`playerCreatures: ${JSON.stringify(this.playerCreatures)}`);
+        DebugManager.message(`playerDrones: ${JSON.stringify(this.playerDrones)}`);
+        DebugManager.message(`AICreatures: ${JSON.stringify(this.AICreatures)}`);
+        DebugManager.message(`AIDrones: ${JSON.stringify(this.AIDrones)}`);
+        DebugManager.message(`visibleCreatures: ${JSON.stringify(this.visibleCreatures)}`);
+        DebugManager.message(`playerDroneScans: ${JSON.stringify(this.playerDroneScans)}`);
+        DebugManager.message(`playerRadarBlips: ${JSON.stringify(this.playerRadarBlips)}`);
+      }
+      
 }
 
 const game = new Game()
