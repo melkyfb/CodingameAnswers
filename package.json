@@ -1,0 +1,34 @@
+{
+  "name": "codingameanswers",
+  "version": "1.0.0",
+  "description": "Codingame Answers",
+  "main": " ",
+  "scripts": {
+    "test": " "
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/melkyfb/CodingameAnswers.git"
+  },
+  "keywords": [
+    "coding",
+    "game",
+    "codingame",
+    "answers",
+    "ai",
+    "ia",
+    "bot",
+    "responses",
+    "response",
+    "algorithm"
+  ],
+  "author": "melkysalem@gmail.com",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/melkyfb/CodingameAnswers/issues"
+  },
+  "homepage": "https://github.com/melkyfb/CodingameAnswers#readme",
+  "devDependencies": {
+    "@types/node": "^22.5.4"
+  }
+}

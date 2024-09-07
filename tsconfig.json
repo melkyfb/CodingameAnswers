@@ -1,0 +1,6 @@
+{
+    "compilerOptions": {
+        "rootDirs": ["./Pod Racing", "./Seabed Security"],
+        "types": ["node"]
+    }
+  }

@@ -7,6 +7,22 @@ enum Direction {
 
 class Vector {
     public constructor(public x: number, public y: number) {}
+
+    add(other: Vector) {
+        return new Vector(this.x + other.x, this.y + other.y)
+    }
+
+    scale(scalar: number) {
+        return new Vector(this.x * scalar, this.y * scalar)
+    }
+
+    getDistanceTo(other: Vector): number {
+        return Math.sqrt((other.x - this.x) ** 2 + (other.y - this.y) ** 2)
+    }
+
+    toString(): string {
+        return `x: ${this.x}, y: ${this.y}`
+    }
 }
 
 interface CollectionObj {
@@ -19,6 +35,30 @@ class Creature implements CollectionObj {
     type: number
     position?: Vector
     velocity?: Vector
+
+    predictNextPosition(deltaTime: number): Vector | undefined {
+        const deltaPosition = this.velocity?.scale(deltaTime)
+        if (deltaPosition) {
+            return this.position?.add(deltaPosition)
+        }
+    }
+
+    toString(): string {
+        return `id: ${this.id}, color: ${this.color}, type: ${this.type}, position: ${this.position}, velocity: ${this.velocity}`
+    }
+}
+
+class VectorHelper {
+    static getNearestVector(vectors: Vector[], vector: Vector): Vector{
+        return vectors.reduce((n, v) => v.getDistanceTo(vector) < n.getDistanceTo(vector) ? v : n)
+    }
+}
+
+class CreaturesHelper {
+    static subtractCreatures(creatures1: Creature[], creatures2: Creature[]): Creature[] {
+        const creatures2Ids = creatures2.map(c => c.id)
+        return creatures1.filter(c => !creatures2Ids.includes(c.id))
+    }
 }
 
 class Drone implements CollectionObj {
@@ -26,6 +66,27 @@ class Drone implements CollectionObj {
     position: Vector
     emergency: number
     battery: number
+
+    getNextMove(creatures: Creature[], droneScans: DroneScan[]) {
+        let move = "WAIT"
+        let highLight = 0
+        const creaturesScanned = droneScans.map(ds => ds.creature)
+        const creaturesNotScanned = CreaturesHelper.subtractCreatures(creatures, creaturesScanned)
+        const creaturesVectors = creaturesNotScanned.map(c => c.position)
+        if (creaturesVectors?.length) {
+            const validVectors = creaturesVectors.filter((v): v is Vector => v !== undefined)
+            const nearestVector = VectorHelper.getNearestVector(validVectors, this.position)
+            if (nearestVector.getDistanceTo(this.position) <= Config.HIGH_LIGHT_ACTIVATE_DISTANCE) {
+                highLight = 1
+            }
+        }
+        const finalMove = `${move} ${highLight}`
+        console.log(finalMove,finalMove) // twice to show above the Drone
+
+        DebugManager.message(`creaturesScanned ${creaturesScanned.map(c => c.toString())}`)
+        DebugManager.message(`creaturesNotScanned ${creaturesNotScanned.map(c => c.toString())}`)
+        DebugManager.message(`creaturesVectors ${creaturesVectors.map(c => c?.toString())}`)
+    }
 }
 
 class DroneScan {
@@ -40,7 +101,7 @@ class RadarBlip {
 }
 
 class DebugManager {
-    message(message: string) {
+    static message(message: string) {
         if (Config.DEBUG) {
             console.error(`DEBUG: ${message}`)
         }
@@ -64,11 +125,15 @@ class Helper {
         }
 
         return enumMap[enumValue]
-      }
+    }
 }
 
 class Config {
     static DEBUG = true
+
+    static DELTA_TIME_FACTOR = 100 // this is to guess the next position of the creature
+
+    static HIGH_LIGHT_ACTIVATE_DISTANCE = 2000 // 2000 is the minimum default distance for scan with high light
 }
 
 class Game {
@@ -206,12 +271,8 @@ class Game {
         }
     }
 
-    getAction(drone: Drone) {            
-    
-            // Write an action using console.log()
-            // To debug: console.error('Debug messages...')
-    
-            console.log('WAIT 1')         // MOVE <x> <y> <light (1|0)> | WAIT <light (1|0)>
+    getAction(drone: Drone) {    
+            drone.getNextMove(this.visibleCreatures, this.playerDroneScans)
     }
 }
 
