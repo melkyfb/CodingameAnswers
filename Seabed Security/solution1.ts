@@ -96,7 +96,7 @@ class Drone implements CollectionObj {
             const validVectors = creaturesVectors.filter((v): v is Vector => v !== undefined)
             const nearestVector = VectorHelper.getNearestVector(validVectors, this.position)
             if (nearestVector.x !== this.position.x && nearestVector.y > this.position.y) {
-                move = `${nearestVector.x} ${nearestVector.y}`
+                move = `MOVE ${nearestVector.x} ${nearestVector.y}`
             }
         }
         return move
